@@ -1,9 +1,9 @@
 import { Router, type Request, type Response } from 'express'
-import { getAllTasks, getTaskById, getEmbryosByTaskId, getSnapshotsByTaskId } from '../db.js'
+import { getAllTasks, getTaskById, getEmbryosByTaskId, getSnapshotsByTaskId, addReportArchive, getAllReportArchives, getAllComparisonGroups } from '../db.js'
 
 const router = Router()
 
-const CSV_COLUMNS = ['id', 'name', 'status', 'diskMass', 'viscosityAlpha', 'dimension', 'dustSizeDistFile', 'userId', 'currentStep', 'totalSteps', 'createdAt', 'batchId', 'recommendationSource', 'recommendationConfidence', 'recommendationProfile'] as const
+const CSV_COLUMNS = ['id', 'name', 'status', 'diskMass', 'viscosityAlpha', 'dimension', 'dustSizeDistFile', 'userId', 'currentStep', 'totalSteps', 'createdAt', 'batchId', 'recommendationSource', 'recommendationConfidence', 'recommendationProfile', 'lastValidationStatus', 'lastValidationComment', 'lastValidationAt'] as const
 
 router.get('/', (req: Request, res: Response): void => {
   const format = (req.query.format as string) || 'json'
@@ -13,9 +13,16 @@ router.get('/', (req: Request, res: Response): void => {
   const status = req.query.status as string
   const dimension = req.query.dimension as string
   const recommendationSource = req.query.recommendationSource as string
+  const comparisonGroupId = req.query.comparisonGroupId as string
 
   let tasks = getAllTasks()
 
+  if (comparisonGroupId) {
+    const group = getAllComparisonGroups().find(g => g.id === comparisonGroupId)
+    if (group) {
+      tasks = tasks.filter(t => group.taskIds.includes(t.id))
+    }
+  }
   if (minDiskMass != null) {
     tasks = tasks.filter(t => t.diskMass >= minDiskMass)
   }
@@ -69,52 +76,95 @@ router.get('/', (req: Request, res: Response): void => {
   res.json({ success: true, data: exportData })
 })
 
+router.get('/reports', (_req: Request, res: Response): void => {
+  res.json({ success: true, data: getAllReportArchives() })
+})
+
 router.post('/reports/:id/generate', (req: Request, res: Response): void => {
   const task = getTaskById(req.params.id)
   if (!task) {
+    addReportArchive({ taskId: req.params.id, taskName: '(未知)', status: 'failed', error: '任务未找到', generatedAt: new Date().toISOString() })
     res.status(404).json({ success: false, error: '任务未找到' })
     return
   }
+  const archive = addReportArchive({
+    taskId: task.id,
+    taskName: task.name,
+    status: 'generated',
+    generatedAt: new Date().toISOString(),
+  })
   res.json({
     success: true,
     data: {
-      reportId: req.params.id,
+      reportId: archive.id,
       taskId: task.id,
       taskName: task.name,
       status: 'generated',
-      generatedAt: new Date().toISOString(),
+      generatedAt: archive.generatedAt,
     },
   })
 })
 
-function buildPdf(textLines: string[]): Buffer {
-  const lines = textLines.map(l => l || ' ')
-  const objects: string[] = []
-  let objNum = 0
+function toHexPair(code: number): string {
+  const hex = code.toString(16).toUpperCase().padStart(4, '0')
+  return `${hex.charAt(0)}${hex.charAt(1)} ${hex.charAt(2)}${hex.charAt(3)}`
+}
 
-  const addObj = (content: string): number => {
-    objNum++
-    objects.push(`${objNum} 0 obj\n${content}\nendobj`)
-    return objNum
+function buildPdf(textLines: string[]): Buffer {
+  const utf16Lines: string[] = []
+  for (const rawLine of textLines) {
+    if (!rawLine) { utf16Lines.push(''); continue }
+    const hexChars: string[] = ['FEFF']
+    for (let i = 0; i < rawLine.length; i++) {
+      const code = rawLine.charCodeAt(i)
+      hexChars.push(toHexPair(code))
+    }
+    utf16Lines.push(hexChars.join(' '))
   }
 
-  const fontId = addObj('<< /Type /Font /Subtype /Type1 /BaseFont /Courier >>')
+  const objects: { num: number; content: string }[] = []
+  let objNum = 1
+
+  const addObj = (content: string): number => {
+    const n = objNum++
+    objects.push({ num: n, content })
+    return n
+  }
+
+  const cidFontId = addObj('<< /Type /Font /Subtype /Type0 /BaseFont /Helvetica /Encoding /Identity-H /DescendantFonts [' + (objNum + 1) + ' 0 R] >>')
+  const cidSysFontId = addObj('<< /Type /Font /Subtype /CIDFontType2 /BaseFont /Helvetica /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> /W [] >>')
+
   const pageWidth = 595.28
   const pageHeight = 841.89
   const marginX = 50
   const marginTop = 50
-  const lineHeight = 14
-  const maxCharsPerLine = 80
+  const fontSize = 10
+  const charWidth = fontSize * 0.5
+  const lineHeight = 16
+  const maxCharsPerLine = Math.floor((pageWidth - 2 * marginX) / charWidth)
   const maxLinesPerPage = Math.floor((pageHeight - 2 * marginTop) / lineHeight)
 
   const wrappedLines: string[] = []
-  for (const line of lines) {
-    if (line.length <= maxCharsPerLine) {
+  for (const line of utf16Lines) {
+    if (!line) { wrappedLines.push(''); continue }
+    const charCount = (line.match(/[0-9A-F]{4}/g) || []).length - 1
+    if (charCount <= maxCharsPerLine) {
       wrappedLines.push(line)
     } else {
-      for (let i = 0; i < line.length; i += maxCharsPerLine) {
-        wrappedLines.push(line.slice(i, i + maxCharsPerLine))
+      const tokens = line.split(' ')
+      let current = 'FEFF'
+      let count = 0
+      for (let i = 1; i < tokens.length; i++) {
+        if (count + 1 > maxCharsPerLine) {
+          wrappedLines.push(current)
+          current = 'FEFF ' + tokens[i]
+          count = 1
+        } else {
+          current += ' ' + tokens[i]
+          count++
+        }
       }
+      if (current) wrappedLines.push(current)
     }
   }
 
@@ -122,49 +172,53 @@ function buildPdf(textLines: string[]): Buffer {
   for (let i = 0; i < wrappedLines.length; i += maxLinesPerPage) {
     const chunk = wrappedLines.slice(i, i + maxLinesPerPage)
     const streamLines = chunk.map((l, idx) => {
-      const escaped = l.replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)')
-      return `${marginX} ${pageHeight - marginTop - idx * lineHeight} Td (${escaped}) Tj 0 ${-lineHeight} Td`
-    })
-    const streamContent = `BT\n/F1 10 Tf\n${streamLines.join('\n')}\nET`
+      if (!l) return ''
+      return `1 0 0 1 ${marginX} ${pageHeight - marginTop - idx * lineHeight} Tm <${l}> Tj`
+    }).filter(Boolean)
+    const streamContent = `BT\n/F1 ${fontSize} Tf\n${streamLines.join('\n')}\nET`
+    const streamId = addObj(`<< /Length ${Buffer.byteLength(streamContent, 'latin1')} >>\nstream\n${streamContent}\nendstream`)
+    const pagesObjId = 2
+    const pageId = addObj(`<< /Type /Page /Parent ${pagesObjId} 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Contents ${streamId} 0 R /Resources << /Font << /F1 ${cidFontId} 0 R >> >> >>`)
+    pages.push(pageId)
+  }
+
+  if (pages.length === 0) {
+    const streamContent = 'BT\n/F1 10 Tf\n1 0 0 1 50 750 Tm <FEFF> Tj\nET'
     const streamId = addObj(`<< /Length ${streamContent.length} >>\nstream\n${streamContent}\nendstream`)
-    const pageId = addObj(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Contents ${streamId} 0 R /Resources << /Font << /F1 ${fontId} 0 R >> >> >>`)
+    const pageId = addObj(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pageWidth} ${pageHeight}] /Contents ${streamId} 0 R /Resources << /Font << /F1 ${cidFontId} 0 R >> >> >>`)
     pages.push(pageId)
   }
 
   const pagesId = addObj(`<< /Type /Pages /Kids [${pages.map(p => `${p} 0 R`).join(' ')}] /Count ${pages.length} >>`)
-
-  objects[1] = `${2} 0 obj\n<< /Type /Pages /Kids [${pages.map(p => `${p} 0 R`).join(' ')}] /Count ${pages.length} >>\nendobj`
-
-  const catalogId = addObj(`<< /Type /Catalog /Pages ${pagesId > 2 ? pagesId : 2} 0 R >>`)
+  const catalogId = addObj(`<< /Type /Catalog /Pages ${pagesId} 0 R >>`)
 
   const buf: number[] = []
-  const write = (s: string) => {
+  const writeStr = (s: string) => {
     for (let i = 0; i < s.length; i++) buf.push(s.charCodeAt(i))
   }
-  const writeBin = (b: Buffer) => {
+  const writeBuf = (b: Buffer) => {
     for (let i = 0; i < b.length; i++) buf.push(b[i])
   }
 
-  write('%PDF-1.4\n')
-  const offsets: number[] = []
-  for (let i = 0; i < objects.length; i++) {
-    const objIdx = i + 1
-    offsets[objIdx] = buf.length
-    writeBin(Buffer.from(`${objIdx} 0 obj\n${objects[i].split('\n').slice(1, -1).join('\n')}\nendobj\n`))
+  writeStr('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n')
+  const offsets: Record<number, number> = {}
+  for (const obj of objects) {
+    offsets[obj.num] = buf.length
+    writeBuf(Buffer.from(`${obj.num} 0 obj\n${obj.content}\nendobj\n`, 'latin1'))
   }
 
   const xrefOffset = buf.length
-  write('xref\n')
-  write(`0 ${objects.length + 1}\n`)
-  write('0000000000 65535 f \n')
-  for (let i = 1; i <= objects.length; i++) {
-    write(`${String(offsets[i] ?? 0).padStart(10, '0')} 00000 n \n`)
+  writeStr('xref\n')
+  writeStr(`0 ${objNum}\n`)
+  writeStr('0000000000 65535 f \n')
+  for (let i = 1; i < objNum; i++) {
+    writeStr(`${String(offsets[i] ?? 0).padStart(10, '0')} 00000 n \n`)
   }
-  write('trailer\n')
-  write(`<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\n`)
-  write('startxref\n')
-  write(`${xrefOffset}\n`)
-  write('%%EOF\n')
+  writeStr('trailer\n')
+  writeStr(`<< /Size ${objNum} /Root ${catalogId} 0 R >>\n`)
+  writeStr('startxref\n')
+  writeStr(`${xrefOffset}\n`)
+  writeStr('%%EOF\n')
 
   return Buffer.from(buf)
 }
@@ -198,6 +252,11 @@ router.get('/reports/:id/download', (req: Request, res: Response): void => {
     task.recommendationSource ? `推荐机制:   ${task.recommendationSource}` : '推荐机制:   (无)',
     task.recommendationConfidence != null ? `置信度:     ${(task.recommendationConfidence * 100).toFixed(1)}%` : '置信度:     (无)',
     task.recommendationProfile ? `粘滞剖面:   ${task.recommendationProfile}` : '粘滞剖面:   (无)',
+    '',
+    '--- 校验记录 ---',
+    task.lastValidationStatus ? `校验结果:   ${task.lastValidationStatus === 'approved' ? '通过' : '退回'}` : '校验结果:   (未校验)',
+    task.lastValidationComment ? `校验意见:   ${task.lastValidationComment}` : '',
+    task.lastValidationAt ? `校验时间:   ${task.lastValidationAt}` : '',
     '',
     '--- 模拟进度 ---',
     `当前步骤: ${task.currentStep} / ${task.totalSteps}`,

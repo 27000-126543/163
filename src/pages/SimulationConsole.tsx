@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppStore } from '@/store';
-import type { SimulationTask } from '@/store';
+import type { SimulationTask, MonitoringSnapshot } from '@/store';
 import StatusFlow from '@/components/StatusFlow';
 import MonitoringChart from '@/components/MonitoringChart';
 import {
@@ -15,6 +15,12 @@ import {
   Save,
   Layers,
   Trash2,
+  GitCompare,
+  CheckSquare,
+  Square,
+  Shield,
+  ShieldCheck,
+  ShieldX,
 } from 'lucide-react';
 
 interface NewSimForm {
@@ -66,6 +72,11 @@ export default function SimulationConsole() {
     fetchTemplates,
     createTemplate,
     deleteTemplate,
+    comparisonGroups,
+    fetchComparisonGroups,
+    createComparisonGroup,
+    deleteComparisonGroup,
+    batchValidate,
   } = useAppStore();
 
   const navigate = useNavigate();
@@ -86,10 +97,22 @@ export default function SimulationConsole() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  const [selectedForCompare, setSelectedForCompare] = useState<Set<string>>(new Set());
+  const [showComparisonModal, setShowComparisonModal] = useState(false);
+  const [comparisonName, setComparisonName] = useState('');
+  const [activeComparisonId, setActiveComparisonId] = useState<string | null>(null);
+  const [comparisonMonitoring, setComparisonMonitoring] = useState<Record<string, MonitoringSnapshot[]>>({});
+
+  const [validationSelected, setValidationSelected] = useState<Set<string>>(new Set());
+  const [showRejectModal, setShowRejectModal] = useState(false);
+  const [rejectComment, setRejectComment] = useState('');
+  const [validating, setValidating] = useState(false);
+
   useEffect(() => {
     fetchSimulations();
     fetchTemplates();
-  }, [fetchSimulations, fetchTemplates]);
+    fetchComparisonGroups();
+  }, [fetchSimulations, fetchTemplates, fetchComparisonGroups]);
 
   useEffect(() => {
     if (highlightId && simulations.some(s => s.id === highlightId)) {
@@ -114,6 +137,31 @@ export default function SimulationConsole() {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
   }, [selectedId, fetchMonitoring]);
+
+  useEffect(() => {
+    if (!activeComparisonId) {
+      setComparisonMonitoring({});
+      return;
+    }
+    const group = comparisonGroups.find(g => g.id === activeComparisonId);
+    if (!group) return;
+    const loadMonitoring = async () => {
+      const result: Record<string, MonitoringSnapshot[]> = {};
+      for (const tid of group.taskIds) {
+        try {
+          const res = await fetch(`/api/simulations/${tid}/monitor`, {
+            headers: { 'Content-Type': 'application/json' },
+          });
+          if (res.ok) {
+            const json = await res.json();
+            result[tid] = (json.data as MonitoringSnapshot[]) || [];
+          }
+        } catch { /* ignore */ }
+      }
+      setComparisonMonitoring(result);
+    };
+    loadMonitoring();
+  }, [activeComparisonId, comparisonGroups]);
 
   const handleSubmit = useCallback(async () => {
     setSubmitting(true);
@@ -184,7 +232,7 @@ export default function SimulationConsole() {
       diskMass: String(tpl.diskMass),
       viscosityAlpha: String(tpl.viscosityAlpha),
       dimension: tpl.dimension === '2D' ? 2 : 1,
-      dustSizeDistFile: null,
+      dustSizeDistFile: tpl.dustSizeDistFile ? new File([], tpl.dustSizeDistFile) : null,
       recommendationSource: tpl.recommendationSource,
     }));
   }, []);
@@ -207,11 +255,86 @@ export default function SimulationConsole() {
     [],
   );
 
+  const toggleCompareSelect = useCallback((id: string) => {
+    setSelectedForCompare(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleCreateComparison = useCallback(async () => {
+    const name = comparisonName.trim();
+    if (!name || selectedForCompare.size < 2) return;
+    try {
+      await createComparisonGroup(name, [...selectedForCompare]);
+      setComparisonName('');
+      setShowComparisonModal(false);
+      setSelectedForCompare(new Set());
+      await fetchComparisonGroups();
+    } catch { /* ignore */ }
+  }, [comparisonName, selectedForCompare, createComparisonGroup, fetchComparisonGroups]);
+
+  const handleBatchApprove = useCallback(async () => {
+    if (validationSelected.size === 0) return;
+    setValidating(true);
+    try {
+      await batchValidate([...validationSelected], 'approve', '', 'user-1');
+      setValidationSelected(new Set());
+      await fetchSimulations();
+    } catch { /* ignore */ }
+    finally {
+      setValidating(false);
+    }
+  }, [validationSelected, batchValidate, fetchSimulations]);
+
+  const handleBatchReject = useCallback(async () => {
+    if (validationSelected.size === 0) return;
+    if (!rejectComment.trim()) return;
+    setValidating(true);
+    try {
+      await batchValidate([...validationSelected], 'reject', rejectComment.trim(), 'user-1');
+      setValidationSelected(new Set());
+      setRejectComment('');
+      setShowRejectModal(false);
+      await fetchSimulations();
+    } catch { /* ignore */ }
+    finally {
+      setValidating(false);
+    }
+  }, [validationSelected, rejectComment, batchValidate, fetchSimulations]);
+
+  const toggleValidationSelect = useCallback((id: string) => {
+    setValidationSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
   const filteredSimulations = batchFilter
     ? simulations.filter(s => s.batchId === batchFilter)
     : simulations;
 
+  const displayedSimulations = activeComparisonId
+    ? (() => {
+        const group = comparisonGroups.find(g => g.id === activeComparisonId);
+        if (!group) return filteredSimulations;
+        return filteredSimulations.filter(s => group.taskIds.includes(s.id));
+      })()
+    : filteredSimulations;
+
   const batchIds = [...new Set(simulations.filter(s => s.batchId).map(s => s.batchId!))];
+
+  const pendingValidationTasks = simulations.filter(s => s.status === 'pending_validation');
 
   const selectedSim: SimulationTask | undefined = selectedId
     ? simulations.find((s) => s.id === selectedId) ?? (currentSimulation?.id === selectedId ? currentSimulation : undefined)
@@ -233,6 +356,15 @@ export default function SimulationConsole() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {selectedForCompare.size >= 2 && (
+            <button
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-nebula-500/20 text-nebula-300 border border-nebula-500/40 hover:bg-nebula-500/30 transition-colors"
+              onClick={() => setShowComparisonModal(true)}
+            >
+              <GitCompare size={16} />
+              创建对比 ({selectedForCompare.size})
+            </button>
+          )}
           <button
             className="cosmos-btn-primary flex items-center gap-2"
             onClick={() => openModal('single')}
@@ -250,28 +382,132 @@ export default function SimulationConsole() {
         </div>
       </div>
 
-      {batchIds.length > 0 && (
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-gray-500">按批次筛选:</span>
-          <button
-            className={`px-3 py-1 rounded text-xs transition-colors ${!batchFilter ? 'bg-nebula-500/20 text-nebula-300 border border-nebula-500/40' : 'bg-cosmos-700 text-gray-400 border border-cosmos-500/30 hover:border-cosmos-500/50'}`}
-            onClick={() => setBatchFilter('')}
-          >
-            全部
-          </button>
-          {batchIds.map(bid => (
-            <button
-              key={bid}
-              className={`px-3 py-1 rounded text-xs transition-colors ${batchFilter === bid ? 'bg-nebula-500/20 text-nebula-300 border border-nebula-500/40' : 'bg-cosmos-700 text-gray-400 border border-cosmos-500/30 hover:border-cosmos-500/50'}`}
-              onClick={() => setBatchFilter(bid)}
-            >
-              {bid.replace('batch-', '批次 ')}
-            </button>
-          ))}
+      {pendingValidationTasks.length > 0 && !activeComparisonId && (
+        <div className="cosmos-card p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Shield size={16} className="text-aurora-400" />
+              <h4 className="text-sm font-medium text-gray-200">待校验任务</h4>
+              <span className="text-xs text-gray-500">({pendingValidationTasks.length})</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-aurora-500/20 text-aurora-400 border border-aurora-500/30 hover:bg-aurora-500/30 transition-colors disabled:opacity-50"
+                onClick={handleBatchApprove}
+                disabled={validationSelected.size === 0 || validating}
+              >
+                <ShieldCheck size={14} />
+                批量通过 {validationSelected.size > 0 && `(${validationSelected.size})`}
+              </button>
+              <button
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                onClick={() => validationSelected.size > 0 && setShowRejectModal(true)}
+                disabled={validationSelected.size === 0 || validating}
+              >
+                <ShieldX size={14} />
+                批量驳回 {validationSelected.size > 0 && `(${validationSelected.size})`}
+              </button>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {pendingValidationTasks.map(task => (
+              <div
+                key={task.id}
+                className="flex items-center gap-3 p-3 rounded-lg bg-cosmos-800/60 border border-cosmos-500/20 hover:border-cosmos-500/40 transition-colors"
+              >
+                <button
+                  className="text-gray-400 hover:text-aurora-400 transition-colors"
+                  onClick={(e) => { e.stopPropagation(); toggleValidationSelect(task.id); }}
+                >
+                  {validationSelected.has(task.id) ? (
+                    <CheckSquare size={18} className="text-aurora-400" />
+                  ) : (
+                    <Square size={18} />
+                  )}
+                </button>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-gray-200 truncate">{task.name}</span>
+                    <span className="cosmos-badge cosmos-badge-nebula text-xs">待校验</span>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                    <span>盘质量: {task.diskMass} M☉</span>
+                    <span>α粘滞: {task.viscosityAlpha}</span>
+                    <span>维度: {task.dimension}</span>
+                  </div>
+                </div>
+                <button
+                  className="text-xs text-gray-400 hover:text-gray-200 transition-colors px-2 py-1 rounded bg-cosmos-700 border border-cosmos-500/30"
+                  onClick={() => setSelectedId(task.id)}
+                >
+                  查看详情
+                </button>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {selectedId ? (
+      {(batchIds.length > 0 || comparisonGroups.length > 0) && (
+        <div className="flex items-center gap-3 flex-wrap">
+          {batchIds.length > 0 && (
+            <>
+              <span className="text-xs text-gray-500">按批次筛选:</span>
+              <button
+                className={`px-3 py-1 rounded text-xs transition-colors ${!batchFilter && !activeComparisonId ? 'bg-nebula-500/20 text-nebula-300 border border-nebula-500/40' : 'bg-cosmos-700 text-gray-400 border border-cosmos-500/30 hover:border-cosmos-500/50'}`}
+                onClick={() => { setBatchFilter(''); setActiveComparisonId(null); }}
+              >
+                全部
+              </button>
+              {batchIds.map(bid => (
+                <button
+                  key={bid}
+                  className={`px-3 py-1 rounded text-xs transition-colors ${batchFilter === bid && !activeComparisonId ? 'bg-nebula-500/20 text-nebula-300 border border-nebula-500/40' : 'bg-cosmos-700 text-gray-400 border border-cosmos-500/30 hover:border-cosmos-500/50'}`}
+                  onClick={() => { setBatchFilter(bid); setActiveComparisonId(null); }}
+                >
+                  {bid.replace('batch-', '批次 ')}
+                </button>
+              ))}
+            </>
+          )}
+          {comparisonGroups.length > 0 && (
+            <>
+              <span className="text-xs text-gray-500 ml-2">对比组:</span>
+              {comparisonGroups.map(group => (
+                <div key={group.id} className="flex items-center gap-1">
+                  <button
+                    className={`px-3 py-1 rounded text-xs transition-colors ${activeComparisonId === group.id ? 'bg-aurora-500/20 text-aurora-300 border border-aurora-500/40' : 'bg-cosmos-700 text-gray-400 border border-cosmos-500/30 hover:border-aurora-500/50'}`}
+                    onClick={() => { setActiveComparisonId(activeComparisonId === group.id ? null : group.id); setBatchFilter(''); }}
+                  >
+                    <GitCompare size={10} className="inline mr-1" />
+                    {group.name}
+                  </button>
+                  <button
+                    className="p-0.5 text-gray-600 hover:text-red-400 transition-colors"
+                    onClick={() => deleteComparisonGroup(group.id)}
+                  >
+                    <Trash2 size={10} />
+                  </button>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
+      {activeComparisonId && (() => {
+        const group = comparisonGroups.find(g => g.id === activeComparisonId);
+        if (!group) return null;
+        const tasks = simulations.filter(s => group.taskIds.includes(s.id));
+        return (
+          <ComparisonTable
+            tasks={tasks}
+            monitoringMap={comparisonMonitoring}
+          />
+        );
+      })()}
+
+      {!activeComparisonId && selectedId ? (
         <div className="flex gap-4">
           <div className="w-80 shrink-0 space-y-3 max-h-[calc(100vh-12rem)] overflow-y-auto pr-1">
             <button
@@ -281,13 +517,15 @@ export default function SimulationConsole() {
               <ChevronLeft size={14} />
               返回列表
             </button>
-            {filteredSimulations.map((sim) => (
+            {displayedSimulations.map((sim) => (
               <TaskCard
                 key={sim.id}
                 sim={sim}
                 active={sim.id === selectedId}
                 highlight={sim.id === highlightId}
+                compareSelected={selectedForCompare.has(sim.id)}
                 onClick={() => setSelectedId(sim.id)}
+                onToggleCompare={() => toggleCompareSelect(sim.id)}
               />
             ))}
           </div>
@@ -308,19 +546,21 @@ export default function SimulationConsole() {
             )}
           </div>
         </div>
-      ) : (
+      ) : !activeComparisonId && (
         <div className="space-y-4">
-          {filteredSimulations.length === 0 ? (
+          {displayedSimulations.length === 0 ? (
             <div className="cosmos-card p-12 text-center">
               <p className="text-gray-400">暂无模拟任务，点击上方按钮创建</p>
             </div>
           ) : (
-            filteredSimulations.map((sim) => (
+            displayedSimulations.map((sim) => (
               <TaskCard
                 key={sim.id}
                 sim={sim}
                 highlight={sim.id === highlightId}
+                compareSelected={selectedForCompare.has(sim.id)}
                 onClick={() => setSelectedId(sim.id)}
+                onToggleCompare={() => toggleCompareSelect(sim.id)}
               />
             ))
           )}
@@ -370,9 +610,13 @@ export default function SimulationConsole() {
                       <div key={tpl.id} className="flex items-center gap-1">
                         <button
                           className="px-2 py-1 rounded text-xs bg-cosmos-700 text-gray-300 border border-cosmos-500/30 hover:border-nebula-500/40 transition-colors"
+                          title={`盘质量: ${tpl.diskMass} M☉ | α: ${tpl.viscosityAlpha} | 维度: ${tpl.dimension}${tpl.dustSizeDistFile ? ` | 文件: ${tpl.dustSizeDistFile}` : ''}`}
                           onClick={() => handleLoadTemplate(tpl)}
                         >
                           {tpl.name}
+                          <span className="ml-1 text-gray-500">
+                            ({tpl.diskMass}M☉, α{tpl.viscosityAlpha}, {tpl.dimension}{tpl.dustSizeDistFile ? `, ${tpl.dustSizeDistFile}` : ''})
+                          </span>
                         </button>
                         <button
                           className="p-0.5 text-gray-600 hover:text-red-400 transition-colors"
@@ -589,6 +833,103 @@ export default function SimulationConsole() {
           </div>
         </div>
       )}
+
+      {showComparisonModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="cosmos-card w-full max-w-md mx-4 p-6 animate-slide-up">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="cosmos-section-title text-base">创建实验对比</h3>
+              <button
+                className="p-1 rounded-md hover:bg-cosmos-600 text-gray-400 hover:text-gray-200 transition-colors"
+                onClick={() => setShowComparisonModal(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="cosmos-label">对比组名称</label>
+                <input
+                  className="cosmos-input"
+                  value={comparisonName}
+                  onChange={(e) => setComparisonName(e.target.value)}
+                  placeholder="输入对比组名称"
+                />
+              </div>
+              <div>
+                <label className="cosmos-label">已选任务 ({selectedForCompare.size})</label>
+                <div className="space-y-1 max-h-48 overflow-y-auto">
+                  {simulations
+                    .filter(s => selectedForCompare.has(s.id))
+                    .map(s => (
+                      <div key={s.id} className="flex items-center justify-between px-3 py-2 rounded bg-cosmos-800/60 text-xs">
+                        <span className="text-gray-200">{s.name}</span>
+                        <span className="text-gray-500">{STATUS_LABEL[s.status] ?? s.status}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  className="cosmos-btn-primary flex-1"
+                  onClick={handleCreateComparison}
+                  disabled={!comparisonName.trim() || selectedForCompare.size < 2}
+                >
+                  保存对比组
+                </button>
+                <button
+                  className="cosmos-btn-secondary"
+                  onClick={() => setShowComparisonModal(false)}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showRejectModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="cosmos-card w-full max-w-md mx-4 p-6 animate-slide-up">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="cosmos-section-title text-base">批量驳回 - 填写驳回原因</h3>
+              <button
+                className="p-1 rounded-md hover:bg-cosmos-600 text-gray-400 hover:text-gray-200 transition-colors"
+                onClick={() => { setShowRejectModal(false); setRejectComment(''); }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="cosmos-label">驳回原因（必填）</label>
+                <textarea
+                  className="cosmos-input min-h-[100px] resize-y"
+                  value={rejectComment}
+                  onChange={(e) => setRejectComment(e.target.value)}
+                  placeholder="请输入驳回原因..."
+                />
+              </div>
+              <div className="flex gap-3">
+                <button
+                  className="flex-1 px-4 py-2 rounded-lg text-sm bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30 transition-colors disabled:opacity-50"
+                  onClick={handleBatchReject}
+                  disabled={!rejectComment.trim() || validating}
+                >
+                  {validating ? '处理中...' : '确认驳回'}
+                </button>
+                <button
+                  className="cosmos-btn-secondary"
+                  onClick={() => { setShowRejectModal(false); setRejectComment(''); }}
+                >
+                  取消
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -597,12 +938,16 @@ function TaskCard({
   sim,
   active,
   highlight,
+  compareSelected,
   onClick,
+  onToggleCompare,
 }: {
   sim: SimulationTask;
   active?: boolean;
   highlight?: boolean;
+  compareSelected?: boolean;
   onClick: () => void;
+  onToggleCompare: () => void;
 }) {
   return (
     <div
@@ -613,6 +958,16 @@ function TaskCard({
     >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
+          <button
+            className="text-gray-400 hover:text-nebula-400 transition-colors"
+            onClick={(e) => { e.stopPropagation(); onToggleCompare(); }}
+          >
+            {compareSelected ? (
+              <CheckSquare size={16} className="text-nebula-400" />
+            ) : (
+              <Square size={16} />
+            )}
+          </button>
           <h4 className="font-medium text-gray-100">{sim.name}</h4>
           <span
             className={`cosmos-badge ${
@@ -620,7 +975,9 @@ function TaskCard({
                 ? 'cosmos-badge-aurora'
                 : sim.status === 'error_rollback'
                   ? 'cosmos-badge-danger'
-                  : 'cosmos-badge-nebula'
+                  : sim.status === 'pending_validation'
+                    ? 'cosmos-badge-nebula'
+                    : 'cosmos-badge-nebula'
             }`}
           >
             {STATUS_LABEL[sim.status] ?? sim.status.replace(/_/g, ' ')}
@@ -657,7 +1014,7 @@ function TaskDetail({
   onStart: () => void;
   onPause: () => void;
   onRollback: () => void;
-  monitoringData: import('@/store').MonitoringSnapshot[];
+  monitoringData: MonitoringSnapshot[];
 }) {
   const progress =
     task.totalSteps > 0
@@ -729,7 +1086,7 @@ function TaskDetail({
         </div>
       </div>
 
-      {(task.recommendationSource || task.batchId) && (
+      {(task.recommendationSource || task.batchId || task.lastValidationStatus || task.lastValidationComment || task.lastValidationAt) && (
         <div className="bg-cosmos-700/40 border border-cosmos-500/20 rounded-lg p-4">
           <h4 className="text-sm font-medium text-gray-300 mb-3">附加信息</h4>
           <div className="grid grid-cols-2 gap-3 text-xs">
@@ -755,6 +1112,26 @@ function TaskDetail({
               <div className="flex justify-between">
                 <span className="text-gray-500">批次ID</span>
                 <span className="text-plasma-300">{task.batchId}</span>
+              </div>
+            )}
+            {task.lastValidationStatus && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">最近校验</span>
+                <span className={task.lastValidationStatus === 'approved' ? 'text-aurora-300' : 'text-red-300'}>
+                  {task.lastValidationStatus === 'approved' ? '通过' : '驳回'}
+                </span>
+              </div>
+            )}
+            {task.lastValidationComment && (
+              <div className="flex justify-between col-span-2">
+                <span className="text-gray-500">校验评论</span>
+                <span className="text-gray-300 max-w-[60%] text-right truncate">{task.lastValidationComment}</span>
+              </div>
+            )}
+            {task.lastValidationAt && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">校验时间</span>
+                <span className="text-gray-300">{new Date(task.lastValidationAt).toLocaleString()}</span>
               </div>
             )}
           </div>
@@ -818,6 +1195,129 @@ function TaskDetail({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function ComparisonTable({
+  tasks,
+  monitoringMap,
+}: {
+  tasks: SimulationTask[];
+  monitoringMap: Record<string, MonitoringSnapshot[]>;
+}) {
+  return (
+    <div className="cosmos-card p-4 overflow-x-auto">
+      <div className="flex items-center gap-2 mb-4">
+        <GitCompare size={16} className="text-aurora-400" />
+        <h4 className="text-sm font-medium text-gray-200">实验对比</h4>
+      </div>
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-cosmos-500/30">
+            <th className="text-left py-2 px-3 text-gray-400 font-medium">指标</th>
+            {tasks.map(t => (
+              <th key={t.id} className="text-left py-2 px-3 text-gray-300 font-medium min-w-[140px]">
+                {t.name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          <tr className="border-b border-cosmos-500/10">
+            <td className="py-2 px-3 text-gray-500">盘质量 (M☉)</td>
+            {tasks.map(t => (
+              <td key={t.id} className="py-2 px-3 text-gray-200">{t.diskMass}</td>
+            ))}
+          </tr>
+          <tr className="border-b border-cosmos-500/10">
+            <td className="py-2 px-3 text-gray-500">α粘性参数</td>
+            {tasks.map(t => (
+              <td key={t.id} className="py-2 px-3 text-gray-200">{t.viscosityAlpha}</td>
+            ))}
+          </tr>
+          <tr className="border-b border-cosmos-500/10">
+            <td className="py-2 px-3 text-gray-500">模拟维度</td>
+            {tasks.map(t => (
+              <td key={t.id} className="py-2 px-3 text-gray-200">{t.dimension}</td>
+            ))}
+          </tr>
+          <tr className="border-b border-cosmos-500/10">
+            <td className="py-2 px-3 text-gray-500">状态</td>
+            {tasks.map(t => (
+              <td key={t.id} className="py-2 px-3">
+                <span className={`cosmos-badge text-xs ${
+                  t.status === 'completed'
+                    ? 'cosmos-badge-aurora'
+                    : t.status === 'error_rollback'
+                      ? 'cosmos-badge-danger'
+                      : 'cosmos-badge-nebula'
+                }`}>
+                  {STATUS_LABEL[t.status] ?? t.status.replace(/_/g, ' ')}
+                </span>
+              </td>
+            ))}
+          </tr>
+          <tr className="border-b border-cosmos-500/10">
+            <td className="py-2 px-3 text-gray-500">进度</td>
+            {tasks.map(t => {
+              const p = t.totalSteps > 0 ? Math.round((t.currentStep / t.totalSteps) * 100) : 0;
+              return (
+                <td key={t.id} className="py-2 px-3 text-gray-200">{p}%</td>
+              );
+            })}
+          </tr>
+          <tr className="border-b border-cosmos-500/10">
+            <td className="py-2 px-3 text-gray-500">推荐来源</td>
+            {tasks.map(t => (
+              <td key={t.id} className="py-2 px-3 text-nebula-300">{t.recommendationSource ?? '—'}</td>
+            ))}
+          </tr>
+          <tr className="border-b border-cosmos-500/10">
+            <td className="py-2 px-3 text-gray-500">完成率</td>
+            {tasks.map(t => {
+              const p = t.totalSteps > 0 ? Math.round((t.currentStep / t.totalSteps) * 100) : 0;
+              return (
+                <td key={t.id} className="py-2 px-3">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-cosmos-900 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-nebula-500 to-aurora-500 rounded-full"
+                        style={{ width: `${p}%` }}
+                      />
+                    </div>
+                    <span className="text-gray-300">{p}%</span>
+                  </div>
+                </td>
+              );
+            })}
+          </tr>
+          <tr className="border-b border-cosmos-500/10">
+            <td className="py-2 px-3 text-gray-500">最新 Toomre Q</td>
+            {tasks.map(t => {
+              const snapshots = monitoringMap[t.id];
+              const latestQ = snapshots && snapshots.length > 0 ? snapshots[snapshots.length - 1].toomreQ : null;
+              return (
+                <td key={t.id} className="py-2 px-3 text-aurora-300">
+                  {latestQ != null ? latestQ.toFixed(4) : 'N/A'}
+                </td>
+              );
+            })}
+          </tr>
+          <tr>
+            <td className="py-2 px-3 text-gray-500">尘埃生长率</td>
+            {tasks.map(t => {
+              const snapshots = monitoringMap[t.id];
+              const latestRate = snapshots && snapshots.length > 0 ? snapshots[snapshots.length - 1].dustGrowthRate : null;
+              return (
+                <td key={t.id} className="py-2 px-3 text-plasma-300">
+                  {latestRate != null ? latestRate.toFixed(6) : 'N/A'}
+                </td>
+              );
+            })}
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }

@@ -38,6 +38,9 @@ export interface SimulationTask {
   recommendationSource?: string;
   recommendationConfidence?: number;
   recommendationProfile?: string;
+  lastValidationStatus?: 'approved' | 'rejected';
+  lastValidationComment?: string;
+  lastValidationAt?: string;
 }
 
 export interface SimulationTemplate {
@@ -101,6 +104,31 @@ export interface Recommendation {
   createdAt: string;
 }
 
+export interface ComparisonGroup {
+  id: string;
+  name: string;
+  taskIds: string[];
+  createdAt: string;
+}
+
+export interface ReportArchive {
+  id: string;
+  taskId: string;
+  taskName: string;
+  status: 'generated' | 'failed';
+  error?: string;
+  generatedAt: string;
+}
+
+export interface ValidationRecord {
+  id: string;
+  taskIds: string[];
+  action: 'approve' | 'reject';
+  comment: string;
+  operatorId: string;
+  createdAt: string;
+}
+
 interface AppState {
   simulations: SimulationTask[];
   currentSimulation: SimulationTask | null;
@@ -110,6 +138,8 @@ interface AppState {
   alerts: AlertNotification[];
   monitoringData: MonitoringSnapshot[];
   templates: SimulationTemplate[];
+  comparisonGroups: ComparisonGroup[];
+  reportArchives: ReportArchive[];
   loading: boolean;
   error: string | null;
 
@@ -134,6 +164,12 @@ interface AppState {
   fetchTemplates: () => Promise<void>;
   createTemplate: (data: Omit<SimulationTemplate, 'id' | 'createdAt'>) => Promise<void>;
   deleteTemplate: (id: string) => Promise<void>;
+
+  fetchComparisonGroups: () => Promise<void>;
+  createComparisonGroup: (name: string, taskIds: string[]) => Promise<void>;
+  deleteComparisonGroup: (id: string) => Promise<void>;
+  batchValidate: (taskIds: string[], action: 'approve' | 'reject', comment: string, operatorId: string) => Promise<void>;
+  fetchReportArchives: () => Promise<void>;
 }
 
 const API_BASE = '/api';
@@ -164,6 +200,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   alerts: [],
   monitoringData: [],
   templates: [],
+  comparisonGroups: [],
+  reportArchives: [],
   loading: false,
   error: null,
 
@@ -401,6 +439,66 @@ export const useAppStore = create<AppState>((set, get) => ({
       set((s) => ({ templates: s.templates.filter((t) => t.id !== id) }));
     } catch (e) {
       set({ error: (e as Error).message });
+    }
+  },
+
+  fetchComparisonGroups: async () => {
+    set({ loading: true, error: null });
+    try {
+      const data = await apiFetch<ComparisonGroup[]>('/simulations/comparisons');
+      set({ comparisonGroups: data, loading: false });
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+    }
+  },
+
+  createComparisonGroup: async (name, taskIds) => {
+    set({ loading: true, error: null });
+    try {
+      const created = await apiFetch<ComparisonGroup>('/simulations/comparisons', {
+        method: 'POST',
+        body: JSON.stringify({ name, taskIds }),
+      });
+      set((s) => ({
+        comparisonGroups: [...s.comparisonGroups, created],
+        loading: false,
+      }));
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+      throw e;
+    }
+  },
+
+  deleteComparisonGroup: async (id) => {
+    try {
+      await apiFetch<void>(`/simulations/comparisons/${id}`, { method: 'DELETE' });
+      set((s) => ({ comparisonGroups: s.comparisonGroups.filter((g) => g.id !== id) }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  batchValidate: async (taskIds, action, comment, operatorId) => {
+    set({ loading: true, error: null });
+    try {
+      await apiFetch<ValidationRecord>('/simulations/validate/batch', {
+        method: 'POST',
+        body: JSON.stringify({ taskIds, action, comment, operatorId }),
+      });
+      await get().fetchSimulations();
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+      throw e;
+    }
+  },
+
+  fetchReportArchives: async () => {
+    set({ loading: true, error: null });
+    try {
+      const data = await apiFetch<ReportArchive[]>('/export/reports');
+      set({ reportArchives: data, loading: false });
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
     }
   },
 }));

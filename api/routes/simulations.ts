@@ -3,12 +3,16 @@ import {
   getAllTasks,
   getTaskById,
   createTask,
+  updateTask,
   getEmbryosByTaskId,
   getSnapshotsByTaskId,
   getAllTemplates,
-  getTemplateById,
   createTemplate,
   deleteTemplate,
+  getAllComparisonGroups,
+  createComparisonGroup,
+  deleteComparisonGroup,
+  addValidationRecord,
   type SimulationTask,
   type Dimension,
 } from '../db.js'
@@ -45,6 +49,56 @@ router.delete('/templates/:id', (req: Request, res: Response): void => {
     return
   }
   res.json({ success: true })
+})
+
+router.get('/comparisons', (_req: Request, res: Response): void => {
+  res.json({ success: true, data: getAllComparisonGroups() })
+})
+
+router.post('/comparisons', (req: Request, res: Response): void => {
+  const { name, taskIds } = req.body
+  if (!name || !Array.isArray(taskIds) || taskIds.length < 2) {
+    res.status(400).json({ success: false, error: '缺少必填字段: name, taskIds (至少2个)' })
+    return
+  }
+  const group = createComparisonGroup(name, taskIds)
+  res.status(201).json({ success: true, data: group })
+})
+
+router.delete('/comparisons/:id', (req: Request, res: Response): void => {
+  const ok = deleteComparisonGroup(req.params.id)
+  if (!ok) {
+    res.status(404).json({ success: false, error: '对比组未找到' })
+    return
+  }
+  res.json({ success: true })
+})
+
+router.post('/validate/batch', (req: Request, res: Response): void => {
+  const { taskIds, action, comment, operatorId } = req.body
+  if (!Array.isArray(taskIds) || taskIds.length === 0 || !action || !operatorId) {
+    res.status(400).json({ success: false, error: '缺少必填字段: taskIds, action, operatorId' })
+    return
+  }
+  if (!['approve', 'reject'].includes(action)) {
+    res.status(400).json({ success: false, error: 'action 必须为 approve 或 reject' })
+    return
+  }
+  const updated: SimulationTask[] = []
+  for (const tid of taskIds) {
+    const task = getTaskById(tid)
+    if (!task || task.status !== 'pending_validation') continue
+    const newStatus = action === 'approve' ? 'model_building' : 'error_rollback'
+    const t = updateTask(tid, {
+      status: newStatus as SimulationTask['status'],
+      lastValidationStatus: action === 'approve' ? 'approved' : 'rejected',
+      lastValidationComment: comment || '',
+      lastValidationAt: new Date().toISOString(),
+    })
+    if (t) updated.push(t)
+  }
+  addValidationRecord({ taskIds, action, comment: comment || '', operatorId })
+  res.json({ success: true, data: { updated, count: updated.length } })
 })
 
 router.post('/batch', (req: Request, res: Response): void => {

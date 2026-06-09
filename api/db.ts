@@ -39,6 +39,9 @@ export interface SimulationTask {
   recommendationSource?: string
   recommendationConfidence?: number
   recommendationProfile?: string
+  lastValidationStatus?: 'approved' | 'rejected'
+  lastValidationComment?: string
+  lastValidationAt?: string
 }
 
 export interface SimulationTemplate {
@@ -49,6 +52,31 @@ export interface SimulationTemplate {
   dimension: Dimension
   dustSizeDistFile: string
   recommendationSource?: string
+  createdAt: string
+}
+
+export interface ComparisonGroup {
+  id: string
+  name: string
+  taskIds: string[]
+  createdAt: string
+}
+
+export interface ReportArchive {
+  id: string
+  taskId: string
+  taskName: string
+  status: 'generated' | 'failed'
+  error?: string
+  generatedAt: string
+}
+
+export interface ValidationRecord {
+  id: string
+  taskIds: string[]
+  action: 'approve' | 'reject'
+  comment: string
+  operatorId: string
   createdAt: string
 }
 
@@ -510,4 +538,47 @@ export function deleteTemplate(id: string): boolean {
   if (idx === -1) return false
   templates.splice(idx, 1)
   return true
+}
+
+const comparisonGroups: ComparisonGroup[] = []
+
+export function getAllComparisonGroups(): ComparisonGroup[] {
+  return comparisonGroups
+}
+
+export function createComparisonGroup(name: string, taskIds: string[]): ComparisonGroup {
+  const group: ComparisonGroup = { id: uuidv4(), name, taskIds, createdAt: new Date().toISOString() }
+  comparisonGroups.push(group)
+  return group
+}
+
+export function deleteComparisonGroup(id: string): boolean {
+  const idx = comparisonGroups.findIndex(g => g.id === id)
+  if (idx === -1) return false
+  comparisonGroups.splice(idx, 1)
+  return true
+}
+
+const reportArchives: ReportArchive[] = []
+
+export function getAllReportArchives(): ReportArchive[] {
+  return reportArchives
+}
+
+export function addReportArchive(archive: Omit<ReportArchive, 'id'>): ReportArchive {
+  const record: ReportArchive = { ...archive, id: uuidv4() }
+  reportArchives.unshift(record)
+  return record
+}
+
+const validationRecords: ValidationRecord[] = []
+
+export function getValidationRecords(): ValidationRecord[] {
+  return validationRecords
+}
+
+export function addValidationRecord(data: Omit<ValidationRecord, 'id' | 'createdAt'>): ValidationRecord {
+  const record: ValidationRecord = { ...data, id: uuidv4(), createdAt: new Date().toISOString() }
+  validationRecords.unshift(record)
+  return record
 }
