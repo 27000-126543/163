@@ -34,6 +34,21 @@ export interface SimulationTask {
   createdAt: string;
   updatedAt: string;
   embryos?: PlanetEmbryo[];
+  batchId?: string;
+  recommendationSource?: string;
+  recommendationConfidence?: number;
+  recommendationProfile?: string;
+}
+
+export interface SimulationTemplate {
+  id: string;
+  name: string;
+  diskMass: number;
+  viscosityAlpha: number;
+  dimension: string;
+  dustSizeDistFile: string;
+  recommendationSource?: string;
+  createdAt: string;
 }
 
 export interface MonitoringSnapshot {
@@ -94,12 +109,14 @@ interface AppState {
   dailyStats: DailyStatistic[];
   alerts: AlertNotification[];
   monitoringData: MonitoringSnapshot[];
+  templates: SimulationTemplate[];
   loading: boolean;
   error: string | null;
 
   fetchSimulations: () => Promise<void>;
   fetchSimulation: (id: string) => Promise<void>;
-  createSimulation: (data: Partial<SimulationTask>) => Promise<void>;
+  createSimulation: (data: Partial<SimulationTask>) => Promise<SimulationTask>;
+  batchCreateSimulations: (data: { namePrefix: string; diskMass: number; viscosityAlpha: number; dustSizeDistFile?: string; dimension?: string; userId: string; count: number; recommendationSource?: string; recommendationConfidence?: number; recommendationProfile?: string }) => Promise<{ batchId: string; tasks: SimulationTask[] }>;
   startSimulation: (id: string) => Promise<void>;
   pauseSimulation: (id: string) => Promise<void>;
   rollbackSimulation: (id: string) => Promise<void>;
@@ -113,6 +130,10 @@ interface AppState {
   fetchAlerts: () => Promise<void>;
 
   fetchMonitoring: (taskId: string) => Promise<void>;
+
+  fetchTemplates: () => Promise<void>;
+  createTemplate: (data: Omit<SimulationTemplate, 'id' | 'createdAt'>) => Promise<void>;
+  deleteTemplate: (id: string) => Promise<void>;
 }
 
 const API_BASE = '/api';
@@ -122,7 +143,14 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     ...options,
   });
-  if (!res.ok) throw new Error(`API Error: ${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    let errorMsg = `API Error: ${res.status} ${res.statusText}`;
+    try {
+      const errBody = await res.json();
+      if (errBody.error) errorMsg = errBody.error;
+    } catch { /* ignore */ }
+    throw new Error(errorMsg);
+  }
   const json = await res.json();
   return json.data as T;
 }
@@ -135,6 +163,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   dailyStats: [],
   alerts: [],
   monitoringData: [],
+  templates: [],
   loading: false,
   error: null,
 
@@ -169,8 +198,28 @@ export const useAppStore = create<AppState>((set, get) => ({
         simulations: [...s.simulations, created],
         loading: false,
       }));
+      return created;
     } catch (e) {
       set({ error: (e as Error).message, loading: false });
+      throw e;
+    }
+  },
+
+  batchCreateSimulations: async (data) => {
+    set({ loading: true, error: null });
+    try {
+      const result = await apiFetch<{ batchId: string; tasks: SimulationTask[] }>('/simulations/batch', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      set((s) => ({
+        simulations: [...s.simulations, ...result.tasks],
+        loading: false,
+      }));
+      return result;
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+      throw e;
     }
   },
 
@@ -322,5 +371,36 @@ export const useAppStore = create<AppState>((set, get) => ({
       },
     ];
     set({ alerts: hardcoded });
+  },
+
+  fetchTemplates: async () => {
+    try {
+      const data = await apiFetch<SimulationTemplate[]>('/simulations/templates');
+      set({ templates: data });
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+  },
+
+  createTemplate: async (data) => {
+    try {
+      const created = await apiFetch<SimulationTemplate>('/simulations/templates', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      set((s) => ({ templates: [...s.templates, created] }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+      throw e;
+    }
+  },
+
+  deleteTemplate: async (id) => {
+    try {
+      await apiFetch<void>(`/simulations/templates/${id}`, { method: 'DELETE' });
+      set((s) => ({ templates: s.templates.filter((t) => t.id !== id) }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
   },
 }));

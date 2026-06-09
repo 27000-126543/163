@@ -35,6 +35,21 @@ export interface SimulationTask {
   totalSteps: number
   createdAt: string
   updatedAt: string
+  batchId?: string
+  recommendationSource?: string
+  recommendationConfidence?: number
+  recommendationProfile?: string
+}
+
+export interface SimulationTemplate {
+  id: string
+  name: string
+  diskMass: number
+  viscosityAlpha: number
+  dimension: Dimension
+  dustSizeDistFile: string
+  recommendationSource?: string
+  createdAt: string
 }
 
 export interface PlanetEmbryo {
@@ -453,4 +468,46 @@ export function getActiveTaskIds(): string[] {
   return simulationTasks
     .filter(t => activeStatuses.includes(t.status))
     .map(t => t.id)
+}
+
+const templates: SimulationTemplate[] = [
+  {
+    id: 'tpl-1',
+    name: '标准2D盘模型',
+    diskMass: 0.05,
+    viscosityAlpha: 0.001,
+    dimension: '2D',
+    dustSizeDistFile: 'mrn_distribution.dat',
+    createdAt: new Date(Date.now() - 10 * dayMs).toISOString(),
+  },
+  {
+    id: 'tpl-2',
+    name: '低粘滞1D快速验证',
+    diskMass: 0.03,
+    viscosityAlpha: 0.0001,
+    dimension: '1D',
+    dustSizeDistFile: 'single_size_1mm.dat',
+    createdAt: new Date(Date.now() - 8 * dayMs).toISOString(),
+  },
+]
+
+export function getAllTemplates(): SimulationTemplate[] {
+  return templates
+}
+
+export function getTemplateById(id: string): SimulationTemplate | undefined {
+  return templates.find(t => t.id === id)
+}
+
+export function createTemplate(data: Omit<SimulationTemplate, 'id' | 'createdAt'>): SimulationTemplate {
+  const tpl: SimulationTemplate = { ...data, id: uuidv4(), createdAt: new Date().toISOString() }
+  templates.push(tpl)
+  return tpl
+}
+
+export function deleteTemplate(id: string): boolean {
+  const idx = templates.findIndex(t => t.id === id)
+  if (idx === -1) return false
+  templates.splice(idx, 1)
+  return true
 }
