@@ -12,13 +12,12 @@ interface BoxplotData {
 }
 
 export default function Dashboard() {
-  const { dailyStats, fetchDailyStats, fetchTrends } = useAppStore();
+  const { dailyStats, fetchTrends } = useAppStore();
   const [boxplotData, setBoxplotData] = useState<BoxplotData | null>(null);
 
   useEffect(() => {
     fetchTrends();
-    fetchDailyStats();
-  }, [fetchTrends, fetchDailyStats]);
+  }, [fetchTrends]);
 
   useEffect(() => {
     fetch('/api/dashboard/boxplot')
@@ -200,19 +199,27 @@ export default function Dashboard() {
                   stroke="#6B7280"
                   fontSize={11}
                   tickFormatter={(v: number) => `${v}%`}
+                  domain={[0, 100]}
                 />
                 <YAxis
                   yAxisId="right"
                   orientation="right"
                   stroke="#6B7280"
                   fontSize={11}
+                  tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
+                  domain={[0, 1]}
                 />
                 <Tooltip
                   contentStyle={{ background: '#151D36', border: '1px solid rgba(124,58,237,0.3)', borderRadius: 8, fontSize: 12 }}
+                  formatter={(value: number, name: string) => {
+                    if (name === '完成率') return [`${value.toFixed(1)}%`, name];
+                    if (name === '平均效率') return [`${(value * 100).toFixed(1)}%`, name];
+                    return [value, name];
+                  }}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
                 <Line yAxisId="left" type="monotone" dataKey="completionRate" stroke="#8B5CF6" strokeWidth={2} dot={false} name="完成率" />
-                <Line yAxisId="left" type="monotone" dataKey="avgEfficiency" stroke="#F97316" strokeWidth={2} dot={false} name="平均效率" />
+                <Line yAxisId="right" type="monotone" dataKey="avgEfficiency" stroke="#F97316" strokeWidth={2} dot={false} name="平均效率" />
                 <Line yAxisId="right" type="monotone" dataKey="convergenceCount" stroke="#10B981" strokeWidth={2} dot={false} name="收敛次数" />
               </LineChart>
             </ResponsiveContainer>

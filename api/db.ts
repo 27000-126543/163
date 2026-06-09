@@ -281,7 +281,7 @@ const dailyStatistics: DailyStatistic[] = Array.from({ length: 7 }, (_, i) => {
   const dateStr = date.toISOString().split('T')[0]
   return {
     date: dateStr,
-    completionRate: 0.3 + Math.random() * 0.5,
+    completionRate: 30 + Math.random() * 50,
     avgEfficiency: 0.5 + Math.random() * 0.4,
     convergenceCount: Math.floor(Math.random() * 5) + 1,
     totalSimulations: Math.floor(Math.random() * 5) + 3,

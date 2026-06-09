@@ -266,7 +266,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       const trendsData = await apiFetch<{dates: string[], completionRates: number[], avgEfficiencies: number[], convergenceCounts: number[], totalSimulations: number[], completedSimulations: number[]}>('/dashboard/trends');
       const converted: DailyStatistic[] = trendsData.dates.map((date, i) => ({
         date,
-        completionRate: trendsData.completionRates[i] * 100,
+        completionRate: trendsData.completionRates[i],
         avgEfficiency: trendsData.avgEfficiencies[i],
         convergenceCount: trendsData.convergenceCounts[i],
         totalSimulations: trendsData.totalSimulations[i],

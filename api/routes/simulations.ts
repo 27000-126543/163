@@ -34,21 +34,22 @@ router.get('/:id', (req: Request, res: Response): void => {
 
 router.post('/', (req: Request, res: Response): void => {
   const { name, diskMass, viscosityAlpha, dustSizeDistFile, dimension, userId } = req.body
-  if (!name || diskMass == null || viscosityAlpha == null || !dustSizeDistFile || !dimension || !userId) {
-    res.status(400).json({ success: false, error: '缺少必填字段' })
+  if (!name || diskMass == null || viscosityAlpha == null || !userId) {
+    res.status(400).json({ success: false, error: '缺少必填字段: name, diskMass, viscosityAlpha, userId' })
     return
   }
-  if (!['1D', '2D'].includes(dimension)) {
+  const dimValue = String(dimension ?? '1D')
+  if (!['1D', '2D'].includes(dimValue)) {
     res.status(400).json({ success: false, error: 'dimension 必须为 1D 或 2D' })
     return
   }
   const task = createTask({
     name,
     status: 'pending_validation',
-    diskMass,
-    viscosityAlpha,
-    dustSizeDistFile,
-    dimension: dimension as Dimension,
+    diskMass: Number(diskMass),
+    viscosityAlpha: Number(viscosityAlpha),
+    dustSizeDistFile: dustSizeDistFile || 'default_distribution.dat',
+    dimension: dimValue as Dimension,
     userId,
     currentStep: 0,
     totalSteps: 6,

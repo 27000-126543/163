@@ -33,7 +33,8 @@ export default function ExportCenter() {
   const [timeWindow, setTimeWindow] = useState('30');
   const [exportFormat, setExportFormat] = useState<'JSON' | 'CSV'>('JSON');
   const [reportTaskId, setReportTaskId] = useState('');
-  const [reportStatus, setReportStatus] = useState<'idle' | 'generating' | 'ready'>('idle');
+  const [reportStatus, setReportStatus] = useState<'idle' | 'generating' | 'ready' | 'error'>('idle');
+  const [reportError, setReportError] = useState('');
 
   useEffect(() => {
     fetchSimulations();
@@ -52,11 +53,19 @@ export default function ExportCenter() {
   const handleGenerateReport = async () => {
     if (!reportTaskId) return;
     setReportStatus('generating');
+    setReportError('');
     try {
-      await fetch(`/api/export/report?taskId=${reportTaskId}`, { method: 'POST' });
+      const res = await fetch(`/api/export/reports/${reportTaskId}/generate`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        setReportStatus('error');
+        setReportError(json.error || '生成失败');
+        return;
+      }
       setReportStatus('ready');
     } catch {
-      setReportStatus('idle');
+      setReportStatus('error');
+      setReportError('网络请求失败');
     }
   };
 
@@ -200,11 +209,23 @@ export default function ExportCenter() {
             </div>
           )}
 
+          {reportStatus === 'error' && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+              <p className="text-xs text-red-300">生成失败: {reportError}</p>
+              <button
+                onClick={() => setReportStatus('idle')}
+                className="mt-1 text-xs text-gray-400 hover:text-gray-200"
+              >
+                重试
+              </button>
+            </div>
+          )}
+
           {reportStatus === 'ready' && (
             <div className="bg-aurora-500/10 border border-aurora-500/30 rounded-lg p-3">
               <p className="text-xs text-aurora-300 mb-2">报告已生成</p>
               <a
-                href={`/api/export/report/download?taskId=${reportTaskId}`}
+                href={`/api/export/reports/${reportTaskId}/download`}
                 className="inline-flex items-center gap-1.5 text-xs text-plasma-300 hover:text-plasma-200 transition-colors"
               >
                 <Download size={12} />下载 PDF 报告
