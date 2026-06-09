@@ -27,7 +27,7 @@ export interface SimulationTask {
   diskMass: number;
   viscosityAlpha: number;
   dustSizeDistFile: string;
-  dimension: number;
+  dimension: string;
   userId: string;
   currentStep: number;
   totalSteps: number;

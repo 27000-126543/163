@@ -41,10 +41,10 @@ export default function ExportCenter() {
 
   const handleExport = () => {
     const params = new URLSearchParams({
-      format: exportFormat,
+      format: exportFormat.toLowerCase(),
       timeWindow,
-      ...(diskMassMin && { diskMassMin }),
-      ...(diskMassMax && { diskMassMax }),
+      ...(diskMassMin && { minDiskMass: diskMassMin }),
+      ...(diskMassMax && { maxDiskMass: diskMassMax }),
     });
     window.open(`/api/export?${params.toString()}`, '_blank');
   };

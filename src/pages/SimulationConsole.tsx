@@ -85,18 +85,27 @@ export default function SimulationConsole() {
     };
   }, [selectedId, fetchMonitoring]);
 
+  const [submitting, setSubmitting] = useState(false);
+
   const handleSubmit = useCallback(async () => {
-    await createSimulation({
-      name: form.name,
-      diskMass: Number(form.diskMass),
-      viscosityAlpha: Number(form.viscosityAlpha),
-      dustSizeDistFile: form.dustSizeDistFile?.name ?? '',
-      dimension: form.dimension,
-      userId: form.userId,
-    });
-    setShowModal(false);
-    setForm({ ...EMPTY_FORM });
-    fetchSimulations();
+    setSubmitting(true);
+    try {
+      await createSimulation({
+        name: form.name,
+        diskMass: Number(form.diskMass),
+        viscosityAlpha: Number(form.viscosityAlpha),
+        dustSizeDistFile: form.dustSizeDistFile?.name ?? '',
+        dimension: form.dimension === 1 ? '1D' : '2D',
+        userId: form.userId,
+      });
+      setShowModal(false);
+      setForm({ ...EMPTY_FORM });
+      await fetchSimulations();
+    } catch (e) {
+      console.error('创建模拟失败:', e);
+    } finally {
+      setSubmitting(false);
+    }
   }, [form, createSimulation, fetchSimulations]);
 
   const handleFileDrop = useCallback(
@@ -316,9 +325,9 @@ export default function SimulationConsole() {
                 <button
                   className="cosmos-btn-primary flex-1"
                   onClick={handleSubmit}
-                  disabled={!form.name.trim()}
+                  disabled={!form.name.trim() || submitting}
                 >
-                  创建任务
+                  {submitting ? '创建中...' : '创建任务'}
                 </button>
                 <button
                   className="cosmos-btn-secondary"
@@ -374,7 +383,7 @@ function TaskCard({
       <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
         <span>盘质量: {sim.diskMass} M☉</span>
         <span>α粘滞: {sim.viscosityAlpha}</span>
-        <span>维度: {sim.dimension}D</span>
+        <span>维度: {sim.dimension}</span>
         <span>
           步骤: {sim.currentStep}/{sim.totalSteps}
         </span>
@@ -448,7 +457,7 @@ function TaskDetail({
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <ParamCard label="盘初始质量" value={`${task.diskMass} M☉`} />
         <ParamCard label="α粘性参数" value={`${task.viscosityAlpha}`} />
-        <ParamCard label="模拟维度" value={`${task.dimension}D`} />
+        <ParamCard label="模拟维度" value={task.dimension} />
         <div className="cosmos-card p-4">
           <p className="text-xs text-gray-500 mb-2">模拟进度</p>
           <div className="flex items-center gap-2 mb-1">
