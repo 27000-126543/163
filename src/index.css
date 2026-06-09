@@ -1,0 +1,110 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(124, 58, 237, 0.3) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.3);
+  border-radius: 3px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.5);
+}
+
+@layer components {
+  .cosmos-card {
+    @apply bg-cosmos-800/80 backdrop-blur-xl border border-cosmos-500/30 rounded-xl;
+  }
+
+  .cosmos-card-hover {
+    @apply cosmos-card hover:border-nebula-500/50 hover:shadow-lg hover:shadow-nebula-500/10 transition-all duration-300;
+  }
+
+  .cosmos-btn-primary {
+    @apply px-4 py-2 bg-gradient-to-r from-nebula-500 to-plasma-500 text-white font-medium rounded-lg 
+    hover:shadow-lg hover:shadow-nebula-500/30 active:scale-[0.98] transition-all duration-200;
+  }
+
+  .cosmos-btn-secondary {
+    @apply px-4 py-2 bg-cosmos-700 border border-cosmos-500/40 text-gray-200 rounded-lg 
+    hover:bg-cosmos-600 hover:border-nebula-500/40 transition-all duration-200;
+  }
+
+  .cosmos-input {
+    @apply w-full px-3 py-2 bg-cosmos-900/80 border border-cosmos-500/40 rounded-lg text-gray-100 
+    placeholder-gray-500 focus:outline-none focus:border-nebula-500/60 focus:ring-1 focus:ring-nebula-500/30 transition-all duration-200;
+  }
+
+  .cosmos-label {
+    @apply block text-sm font-medium text-gray-300 mb-1;
+  }
+
+  .cosmos-badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .cosmos-badge-nebula {
+    @apply cosmos-badge bg-nebula-500/20 text-nebula-300 border border-nebula-500/30;
+  }
+
+  .cosmos-badge-plasma {
+    @apply cosmos-badge bg-plasma-500/20 text-plasma-300 border border-plasma-500/30;
+  }
+
+  .cosmos-badge-aurora {
+    @apply cosmos-badge bg-aurora-500/20 text-aurora-300 border border-aurora-500/30;
+  }
+
+  .cosmos-badge-danger {
+    @apply cosmos-badge bg-red-500/20 text-red-300 border border-red-500/30;
+  }
+
+  .cosmos-section-title {
+    @apply text-lg font-orbitron font-semibold text-gray-100 tracking-wide;
+  }
+}
+
+.starfield-bg {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+  background: 
+    radial-gradient(1px 1px at 10% 20%, rgba(255,255,255,0.8), transparent),
+    radial-gradient(1px 1px at 30% 70%, rgba(255,255,255,0.6), transparent),
+    radial-gradient(1.5px 1.5px at 50% 10%, rgba(124,58,237,0.8), transparent),
+    radial-gradient(1px 1px at 70% 40%, rgba(255,255,255,0.5), transparent),
+    radial-gradient(1px 1px at 90% 80%, rgba(255,255,255,0.7), transparent),
+    radial-gradient(1.5px 1.5px at 20% 90%, rgba(249,115,22,0.6), transparent),
+    radial-gradient(1px 1px at 60% 60%, rgba(255,255,255,0.4), transparent),
+    radial-gradient(1px 1px at 80% 15%, rgba(255,255,255,0.6), transparent),
+    radial-gradient(1.5px 1.5px at 45% 45%, rgba(16,185,129,0.5), transparent),
+    radial-gradient(1px 1px at 15% 55%, rgba(255,255,255,0.5), transparent);
+}
