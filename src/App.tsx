@@ -14,6 +14,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/" element={<SimulationConsole />} />
+          <Route path="/simulation" element={<SimulationConsole />} />
           <Route path="/dust-evolution" element={<DustEvolution />} />
           <Route path="/planet-tracking" element={<PlanetTracking />} />
           <Route path="/approval" element={<ApprovalCenter />} />

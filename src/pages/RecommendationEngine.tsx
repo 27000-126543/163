@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '@/store';
 import { Sparkles, CheckCircle, X } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -32,6 +33,7 @@ interface ApplyForm {
 
 export default function RecommendationEngine() {
   const { recommendations, fetchRecommendations, createSimulation, fetchSimulations } = useAppStore();
+  const navigate = useNavigate();
 
   const [applyModal, setApplyModal] = useState<{
     open: boolean;
@@ -39,7 +41,8 @@ export default function RecommendationEngine() {
     mechanism: string;
     viscosityProfile: string;
     viscosityAlpha: string;
-  }>({ open: false, recId: '', mechanism: '', viscosityProfile: '', viscosityAlpha: '' });
+    confidence: number;
+  }>({ open: false, recId: '', mechanism: '', viscosityProfile: '', viscosityAlpha: '', confidence: 0 });
   const [applyForm, setApplyForm] = useState<ApplyForm>({
     diskMass: '0.1',
     dustSizeDistFile: null,
@@ -47,6 +50,8 @@ export default function RecommendationEngine() {
   });
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState<'idle' | 'success' | 'error'>('idle');
+  const [applyError, setApplyError] = useState('');
+  const [createdTaskId, setCreatedTaskId] = useState('');
 
   useEffect(() => {
     fetchRecommendations();
@@ -62,30 +67,44 @@ export default function RecommendationEngine() {
       mechanism: rec.growthMechanism,
       viscosityProfile: rec.viscosityProfile,
       viscosityAlpha: String(alpha),
+      confidence: rec.confidence,
     });
     setApplyForm({ diskMass: '0.1', dustSizeDistFile: null, dimension: '1D' });
     setApplyResult('idle');
+    setApplyError('');
+    setCreatedTaskId('');
   };
 
   const handleApplySubmit = async () => {
     if (!applyForm.diskMass || !applyForm.dustSizeDistFile) return;
     setApplying(true);
+    setApplyError('');
     try {
-      await createSimulation({
-        name: `${mechanismNameMap[applyModal.mechanism] ?? applyModal.mechanism}推荐模拟`,
+      const mechanismName = mechanismNameMap[applyModal.mechanism] ?? applyModal.mechanism;
+      const created = await createSimulation({
+        name: `${mechanismName}推荐模拟`,
         diskMass: Number(applyForm.diskMass),
         viscosityAlpha: Number(applyModal.viscosityAlpha),
         dustSizeDistFile: applyForm.dustSizeDistFile.name,
         dimension: applyForm.dimension,
         userId: 'user-1',
+        recommendationSource: mechanismName,
+        recommendationConfidence: applyModal.confidence,
+        recommendationProfile: applyModal.viscosityProfile,
       });
       await fetchSimulations();
+      setCreatedTaskId(created.id);
       setApplyResult('success');
-    } catch {
+    } catch (e) {
       setApplyResult('error');
+      setApplyError((e as Error).message || '创建失败，请重试');
     } finally {
       setApplying(false);
     }
+  };
+
+  const handleGoToConsole = () => {
+    navigate(`/simulation?highlight=${createdTaskId}`);
   };
 
   return (
@@ -211,6 +230,10 @@ export default function RecommendationEngine() {
                 <span className="text-plasma-300">{applyModal.viscosityProfile}</span>
               </div>
               <div className="flex justify-between">
+                <span className="text-gray-500">置信度</span>
+                <span className="text-aurora-300">{(applyModal.confidence * 100).toFixed(1)}%</span>
+              </div>
+              <div className="flex justify-between">
                 <span className="text-gray-500">α粘性参数（自动填充）</span>
                 <span className="text-aurora-300 font-mono">{applyModal.viscosityAlpha}</span>
               </div>
@@ -273,13 +296,25 @@ export default function RecommendationEngine() {
             </div>
 
             {applyResult === 'success' && (
-              <div className="mt-4 bg-aurora-500/10 border border-aurora-500/30 rounded-lg p-3 text-xs text-aurora-300">
-                模拟任务已创建成功！请前往模拟控制台查看。
+              <div className="mt-4 bg-aurora-500/10 border border-aurora-500/30 rounded-lg p-3">
+                <p className="text-xs text-aurora-300 mb-2">模拟任务已创建成功！推荐机制和参数已绑定到该任务。</p>
+                <button
+                  onClick={handleGoToConsole}
+                  className="flex items-center gap-1.5 text-xs text-nebula-300 hover:text-nebula-200 transition-colors"
+                >
+                  <Sparkles size={12} />前往模拟控制台查看
+                </button>
               </div>
             )}
             {applyResult === 'error' && (
-              <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300">
-                创建失败，请检查参数后重试。
+              <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
+                <p className="text-xs text-red-300">创建失败: {applyError || '请检查参数后重试'}</p>
+                <button
+                  onClick={() => { setApplyResult('idle'); setApplyError(''); }}
+                  className="mt-1 text-xs text-gray-400 hover:text-gray-200"
+                >
+                  重试
+                </button>
               </div>
             )}
 
@@ -287,7 +322,7 @@ export default function RecommendationEngine() {
               <button
                 className="cosmos-btn-primary flex-1"
                 onClick={handleApplySubmit}
-                disabled={!applyForm.diskMass || !applyForm.dustSizeDistFile || applying}
+                disabled={!applyForm.diskMass || !applyForm.dustSizeDistFile || applying || applyResult === 'success'}
               >
                 {applying ? '创建中...' : '创建模拟任务'}
               </button>

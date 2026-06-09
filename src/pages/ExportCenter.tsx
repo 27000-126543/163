@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useAppStore } from '@/store';
 import { Download, FileText, FileJson, FileSpreadsheet, Loader2 } from 'lucide-react';
 
@@ -25,28 +26,68 @@ const timeWindowOptions = [
   { value: 'all', label: '全部' },
 ];
 
+const statusOptions = [
+  { value: '', label: '全部状态' },
+  { value: 'pending_validation', label: '待校验' },
+  { value: 'model_building', label: '模型构建' },
+  { value: 'dust_growth', label: '尘埃生长' },
+  { value: 'particle_aggregation', label: '粒子聚集' },
+  { value: 'embryo_formation', label: '胚胎形成' },
+  { value: 'orbital_evolution', label: '轨道演化' },
+  { value: 'completed', label: '已完成' },
+  { value: 'error_rollback', label: '错误回滚' },
+];
+
+const dimensionOptions = [
+  { value: '', label: '全部维度' },
+  { value: '1D', label: '1D' },
+  { value: '2D', label: '2D' },
+];
+
 export default function ExportCenter() {
   const { simulations, fetchSimulations } = useAppStore();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [diskMassMin, setDiskMassMin] = useState('');
-  const [diskMassMax, setDiskMassMax] = useState('');
-  const [timeWindow, setTimeWindow] = useState('30');
-  const [exportFormat, setExportFormat] = useState<'JSON' | 'CSV'>('JSON');
+  const diskMassMin = searchParams.get('minDiskMass') || '';
+  const diskMassMax = searchParams.get('maxDiskMass') || '';
+  const timeWindow = searchParams.get('timeWindow') || '30';
+  const exportFormat = (searchParams.get('format') as 'JSON' | 'CSV') || 'JSON';
+  const statusFilter = searchParams.get('status') || '';
+  const dimensionFilter = searchParams.get('dimension') || '';
+  const recSourceFilter = searchParams.get('recommendationSource') || '';
+
   const [reportTaskId, setReportTaskId] = useState('');
   const [reportStatus, setReportStatus] = useState<'idle' | 'generating' | 'ready' | 'error'>('idle');
   const [reportError, setReportError] = useState('');
+
+  const updateParam = useCallback((key: string, value: string) => {
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (value) {
+        next.set(key, value);
+      } else {
+        next.delete(key);
+      }
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   useEffect(() => {
     fetchSimulations();
   }, [fetchSimulations]);
 
+  const recSources = [...new Set(simulations.filter(s => s.recommendationSource).map(s => s.recommendationSource!))];
+
   const handleExport = () => {
     const params = new URLSearchParams({
       format: exportFormat.toLowerCase(),
       timeWindow,
-      ...(diskMassMin && { minDiskMass: diskMassMin }),
-      ...(diskMassMax && { maxDiskMass: diskMassMax }),
     });
+    if (diskMassMin) params.set('minDiskMass', diskMassMin);
+    if (diskMassMax) params.set('maxDiskMass', diskMassMax);
+    if (statusFilter) params.set('status', statusFilter);
+    if (dimensionFilter) params.set('dimension', dimensionFilter);
+    if (recSourceFilter) params.set('recommendationSource', recSourceFilter);
     window.open(`/api/export?${params.toString()}`, '_blank');
   };
 
@@ -105,7 +146,7 @@ export default function ExportCenter() {
                 type="number"
                 step="0.01"
                 value={diskMassMin}
-                onChange={(e) => setDiskMassMin(e.target.value)}
+                onChange={(e) => updateParam('minDiskMass', e.target.value)}
                 placeholder="0.01"
                 className="cosmos-input"
               />
@@ -116,24 +157,66 @@ export default function ExportCenter() {
                 type="number"
                 step="0.01"
                 value={diskMassMax}
-                onChange={(e) => setDiskMassMax(e.target.value)}
+                onChange={(e) => updateParam('maxDiskMass', e.target.value)}
                 placeholder="0.5"
                 className="cosmos-input"
               />
             </div>
           </div>
 
-          <div>
-            <label className="cosmos-label">时间窗口</label>
-            <select
-              value={timeWindow}
-              onChange={(e) => setTimeWindow(e.target.value)}
-              className="cosmos-input"
-            >
-              {timeWindowOptions.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="cosmos-label">时间窗口</label>
+              <select
+                value={timeWindow}
+                onChange={(e) => updateParam('timeWindow', e.target.value)}
+                className="cosmos-input"
+              >
+                {timeWindowOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="cosmos-label">任务状态</label>
+              <select
+                value={statusFilter}
+                onChange={(e) => updateParam('status', e.target.value)}
+                className="cosmos-input"
+              >
+                {statusOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="cosmos-label">维度</label>
+              <select
+                value={dimensionFilter}
+                onChange={(e) => updateParam('dimension', e.target.value)}
+                className="cosmos-input"
+              >
+                {dimensionOptions.map((opt) => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="cosmos-label">推荐来源</label>
+              <select
+                value={recSourceFilter}
+                onChange={(e) => updateParam('recommendationSource', e.target.value)}
+                className="cosmos-input"
+              >
+                <option value="">全部</option>
+                {recSources.map(src => (
+                  <option key={src} value={src}>{src}</option>
+                ))}
+              </select>
+            </div>
           </div>
 
           <div>
@@ -144,7 +227,7 @@ export default function ExportCenter() {
                   type="radio"
                   name="format"
                   checked={exportFormat === 'JSON'}
-                  onChange={() => setExportFormat('JSON')}
+                  onChange={() => updateParam('format', 'JSON')}
                   className="accent-nebula-500"
                 />
                 <span className="text-sm text-gray-300">JSON</span>
@@ -154,7 +237,7 @@ export default function ExportCenter() {
                   type="radio"
                   name="format"
                   checked={exportFormat === 'CSV'}
-                  onChange={() => setExportFormat('CSV')}
+                  onChange={() => updateParam('format', 'CSV')}
                   className="accent-nebula-500"
                 />
                 <span className="text-sm text-gray-300">CSV</span>
@@ -176,7 +259,7 @@ export default function ExportCenter() {
             <label className="cosmos-label">选择模拟任务</label>
             <select
               value={reportTaskId}
-              onChange={(e) => setReportTaskId(e.target.value)}
+              onChange={(e) => { setReportTaskId(e.target.value); setReportStatus('idle'); setReportError(''); }}
               className="cosmos-input"
             >
               <option value="">-- 请选择任务 --</option>
