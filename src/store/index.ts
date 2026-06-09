@@ -38,6 +38,7 @@ export interface SimulationTask {
   recommendationSource?: string;
   recommendationConfidence?: number;
   recommendationProfile?: string;
+  recommendationParams?: Record<string, number>;
   lastValidationStatus?: 'approved' | 'rejected';
   lastValidationComment?: string;
   lastValidationAt?: string;
@@ -118,6 +119,8 @@ export interface ReportArchive {
   status: 'generated' | 'failed';
   error?: string;
   generatedAt: string;
+  comparisonGroupId?: string;
+  comparisonGroupName?: string;
 }
 
 export interface ValidationRecord {
@@ -170,6 +173,7 @@ interface AppState {
   deleteComparisonGroup: (id: string) => Promise<void>;
   batchValidate: (taskIds: string[], action: 'approve' | 'reject', comment: string, operatorId: string) => Promise<void>;
   fetchReportArchives: () => Promise<void>;
+  generateComparisonReport: (groupId: string) => Promise<void>;
 }
 
 const API_BASE = '/api';
@@ -499,6 +503,19 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ reportArchives: data, loading: false });
     } catch (e) {
       set({ error: (e as Error).message, loading: false });
+    }
+  },
+
+  generateComparisonReport: async (groupId) => {
+    set({ loading: true, error: null });
+    try {
+      await apiFetch<ReportArchive>(`/export/reports/comparison/${groupId}/generate`, {
+        method: 'POST',
+      });
+      await get().fetchReportArchives();
+    } catch (e) {
+      set({ error: (e as Error).message, loading: false });
+      throw e;
     }
   },
 }));

@@ -157,7 +157,7 @@ router.get('/:id', (req: Request, res: Response): void => {
 })
 
 router.post('/', (req: Request, res: Response): void => {
-  const { name, diskMass, viscosityAlpha, dustSizeDistFile, dimension, userId, batchId, recommendationSource, recommendationConfidence, recommendationProfile } = req.body
+  const { name, diskMass, viscosityAlpha, dustSizeDistFile, dimension, userId, batchId, recommendationSource, recommendationConfidence, recommendationProfile, recommendationParams } = req.body
   if (!name || diskMass == null || viscosityAlpha == null || !userId) {
     res.status(400).json({ success: false, error: '缺少必填字段: name, diskMass, viscosityAlpha, userId' })
     return
@@ -181,6 +181,7 @@ router.post('/', (req: Request, res: Response): void => {
     recommendationSource: recommendationSource || undefined,
     recommendationConfidence: recommendationConfidence != null ? Number(recommendationConfidence) : undefined,
     recommendationProfile: recommendationProfile || undefined,
+    recommendationParams: recommendationParams || undefined,
   })
   res.status(201).json({ success: true, data: task })
 })

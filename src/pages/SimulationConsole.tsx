@@ -1108,6 +1108,19 @@ function TaskDetail({
                 <span className="text-plasma-300">{task.recommendationProfile}</span>
               </div>
             )}
+            {task.recommendationParams && Object.keys(task.recommendationParams).length > 0 && (
+              <div className="mt-1 pt-1 border-t border-cosmos-500/20">
+                <span className="text-gray-500 text-xs block mb-1">推荐参数</span>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5">
+                  {Object.entries(task.recommendationParams).map(([k, v]) => (
+                    <div key={k} className="flex justify-between text-xs">
+                      <span className="text-gray-500">{k}</span>
+                      <span className="text-plasma-300 font-mono">{typeof v === 'number' ? v.toPrecision(4) : String(v)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             {task.batchId && (
               <div className="flex justify-between">
                 <span className="text-gray-500">批次ID</span>

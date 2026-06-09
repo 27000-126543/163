@@ -39,6 +39,7 @@ export interface SimulationTask {
   recommendationSource?: string
   recommendationConfidence?: number
   recommendationProfile?: string
+  recommendationParams?: Record<string, number>
   lastValidationStatus?: 'approved' | 'rejected'
   lastValidationComment?: string
   lastValidationAt?: string
@@ -69,6 +70,8 @@ export interface ReportArchive {
   status: 'generated' | 'failed'
   error?: string
   generatedAt: string
+  comparisonGroupId?: string
+  comparisonGroupName?: string
 }
 
 export interface ValidationRecord {
@@ -550,6 +553,10 @@ export function createComparisonGroup(name: string, taskIds: string[]): Comparis
   const group: ComparisonGroup = { id: uuidv4(), name, taskIds, createdAt: new Date().toISOString() }
   comparisonGroups.push(group)
   return group
+}
+
+export function getComparisonGroupById(id: string): ComparisonGroup | undefined {
+  return comparisonGroups.find(g => g.id === id)
 }
 
 export function deleteComparisonGroup(id: string): boolean {

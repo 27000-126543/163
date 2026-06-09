@@ -42,7 +42,8 @@ export default function RecommendationEngine() {
     viscosityProfile: string;
     viscosityAlpha: string;
     confidence: number;
-  }>({ open: false, recId: '', mechanism: '', viscosityProfile: '', viscosityAlpha: '', confidence: 0 });
+    viscosityParams: Record<string, number>;
+  }>({ open: false, recId: '', mechanism: '', viscosityProfile: '', viscosityAlpha: '', confidence: 0, viscosityParams: {} });
   const [applyForm, setApplyForm] = useState<ApplyForm>({
     diskMass: '0.1',
     dustSizeDistFile: null,
@@ -68,6 +69,7 @@ export default function RecommendationEngine() {
       viscosityProfile: rec.viscosityProfile,
       viscosityAlpha: String(alpha),
       confidence: rec.confidence,
+      viscosityParams: rec.viscosityParams,
     });
     setApplyForm({ diskMass: '0.1', dustSizeDistFile: null, dimension: '1D' });
     setApplyResult('idle');
@@ -91,10 +93,11 @@ export default function RecommendationEngine() {
         recommendationSource: mechanismName,
         recommendationConfidence: applyModal.confidence,
         recommendationProfile: applyModal.viscosityProfile,
+        recommendationParams: applyModal.viscosityParams,
       });
       await fetchSimulations();
-      setCreatedTaskId(created.id);
-      setApplyResult('success');
+      setApplyModal((p) => ({ ...p, open: false }));
+      navigate(`/simulation?highlight=${created.id}`);
     } catch (e) {
       setApplyResult('error');
       setApplyError((e as Error).message || '创建失败，请重试');
@@ -295,17 +298,6 @@ export default function RecommendationEngine() {
               </div>
             </div>
 
-            {applyResult === 'success' && (
-              <div className="mt-4 bg-aurora-500/10 border border-aurora-500/30 rounded-lg p-3">
-                <p className="text-xs text-aurora-300 mb-2">模拟任务已创建成功！推荐机制和参数已绑定到该任务。</p>
-                <button
-                  onClick={handleGoToConsole}
-                  className="flex items-center gap-1.5 text-xs text-nebula-300 hover:text-nebula-200 transition-colors"
-                >
-                  <Sparkles size={12} />前往模拟控制台查看
-                </button>
-              </div>
-            )}
             {applyResult === 'error' && (
               <div className="mt-4 bg-red-500/10 border border-red-500/30 rounded-lg p-3">
                 <p className="text-xs text-red-300">创建失败: {applyError || '请检查参数后重试'}</p>
@@ -322,15 +314,15 @@ export default function RecommendationEngine() {
               <button
                 className="cosmos-btn-primary flex-1"
                 onClick={handleApplySubmit}
-                disabled={!applyForm.diskMass || !applyForm.dustSizeDistFile || applying || applyResult === 'success'}
+                disabled={!applyForm.diskMass || !applyForm.dustSizeDistFile || applying}
               >
-                {applying ? '创建中...' : '创建模拟任务'}
+                {applying ? '创建中...' : '应用此推荐并创建任务'}
               </button>
               <button
                 className="cosmos-btn-secondary"
                 onClick={() => setApplyModal((p) => ({ ...p, open: false }))}
               >
-                {applyResult === 'success' ? '关闭' : '取消'}
+                取消
               </button>
             </div>
           </div>

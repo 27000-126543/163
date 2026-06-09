@@ -8,8 +8,20 @@ import app from './app.js';
  */
 const PORT = process.env.PORT || 3001;
 
-const server = app.listen(PORT, () => {
+const server = app.listen(Number(PORT), () => {
   console.log(`Server ready on port ${PORT}`);
+});
+
+server.on('error', (err: NodeJS.ErrnoException) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`Port ${PORT} is in use, retrying in 3s...`);
+    setTimeout(() => {
+      server.close();
+      server.listen(Number(PORT));
+    }, 3000);
+  } else {
+    throw err;
+  }
 });
 
 /**
